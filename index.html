@@ -53,7 +53,7 @@ const IS_PREVIEW = false; // Produksi: terhubung murni ke Firebase, tanpa data d
 
 // PASTE FIREBASE CONFIG ANDA DI SINI
 const firebaseConfig = {
-apiKey: "AIzaSyCV_Nevd0-UAR7LYJIpmI46JwEzYC0PvEI",
+  apiKey: "AIzaSyCV_Nevd0-UAR7LYJIpmI46JwEzYC0PvEI",
   authDomain: "gen-1-7a0db.firebaseapp.com",
   projectId: "gen-1-7a0db",
   storageBucket: "gen-1-7a0db.firebasestorage.app",
@@ -110,13 +110,13 @@ const MAPEL = {
   SMA: ["Pendidikan Agama dan Budi Pekerti", "Pendidikan Pancasila", "Bahasa Indonesia", "Matematika", "Bahasa Inggris", "Fisika", "Kimia", "Biologi", "Ekonomi", "Geografi", "Sosiologi", "Sejarah", "Informatika", "PJOK"]
 };
 const JENIS = {
-  formatif: { nama: "Asesmen Formatif", singkat: "Formatif", ket: "Cek pemahaman harian, singkat", jml: { pg: 5, pgk: 0, bs: 0, mj: 0, ur: 2 } },
-  sumatif: { nama: "Asesmen Sumatif", singkat: "Sumatif", ket: "Akhir lingkup materi / bab", jml: { pg: 10, pgk: 2, bs: 2, mj: 1, ur: 3 } },
-  akhir: { nama: "Sumatif Akhir Semester", singkat: "SAS", ket: "Ujian akhir semester / tahun", jml: { pg: 20, pgk: 3, bs: 3, mj: 2, ur: 5 } }
+  formatif: { nama: "Asesmen Formatif", singkat: "Formatif", ket: "Cek pemahaman harian, singkat", jml: { pg: 5, pgk: 0, bs: 0, mj: 0, is: 2, ur: 1 } },
+  sumatif: { nama: "Asesmen Sumatif", singkat: "Sumatif", ket: "Akhir lingkup materi / bab", jml: { pg: 10, pgk: 2, bs: 2, mj: 1, is: 3, ur: 2 } },
+  akhir: { nama: "Sumatif Akhir Semester", singkat: "SAS", ket: "Ujian akhir semester / tahun", jml: { pg: 20, pgk: 3, bs: 3, mj: 2, is: 4, ur: 4 } }
 };
-const BENTUK = { pg: "Pilihan Ganda", pgk: "Pilihan Ganda Kompleks", bs: "Benar/Salah", mj: "Menjodohkan", ur: "Uraian" };
-const URUT = ["pg", "pgk", "bs", "mj", "ur"];
-const SKOR0 = { pg: 1, pgk: 2, bs: 2, mj: 2, ur: 5 };
+const BENTUK = { pg: "Pilihan Ganda", pgk: "Pilihan Ganda Kompleks", bs: "Benar / Salah", mj: "Menjodohkan", is: "Isian Singkat", ur: "Uraian" };
+const URUT = ["pg", "pgk", "bs", "mj", "is", "ur"];
+const SKOR0 = { pg: 1, pgk: 2, bs: 2, mj: 2, is: 2, ur: 5 };
 const LEVEL = { LOTS: "LOTS (C1–C2)", MOTS: "MOTS (C3)", HOTS: "HOTS (C4–C6)" };
 const PROV = {
   gemini: { nama: "Google Gemini", model: "gemini-2.5-flash" },
@@ -128,10 +128,10 @@ const namaMapel = W => (W.mapel === "__lain" ? W.mapelLain : W.mapel) || "";
 const daftarTP = W => W.tp.split("\n").map(s => s.trim()).filter(Boolean);
 const totalSoal = W => URUT.reduce((a, b) => a + (+W.jumlah[b] || 0), 0);
 const totalSkor = W => URUT.reduce((a, b) => a + (+W.jumlah[b] || 0) * (+W.skor[b] || 0), 0);
-const kunciTeks = q => q.bentuk === "pg" ? HURUF[q.kunci] : q.bentuk === "pgk" ? q.kunci.map(i => HURUF[i]).join(", ") : "";
+const kunciTeks = q => q.bentuk === "pg" ? HURUF[q.kunci] : q.bentuk === "pgk" ? q.kunci.map(i => HURUF[i]).join(", ") : q.bentuk === "is" ? q.kunci : "";
 
 /* ============ STATE ============ */
-const S = { ready: false, fatal: "", user: null, role: null, view: "login", f: { id: "", pw: "" }, busyLogin: false, W: newW(), proyek: [], users: [], log: [], proyekAll: [], set: { provider: "gemini", model: "", apiKey: "" }, sibuk: false, status: null, pesan: null, modal: null, ed: null, gf: null, konf: null, top: false };
+const S = { ready: false, fatal: "", user: null, role: null, view: "login", f: { id: "", pw: "" }, busyLogin: false, W: newW(), proyek: [], users: [], log: [], proyekAll: [], proyekCount: 0, ai: { provider: "gemini", model: "", apiKey: "" }, sibuk: false, status: null, pesan: null, modal: null, ed: null, gf: null, konf: null, top: false };
 let batal = false;
 const mem = { users: [], proyek: [], log: [], set: {} };
 let fb = null;
@@ -192,6 +192,18 @@ const DB = {
     const s = await fb.F.getDocs(fb.F.query(fb.F.collection(fb.db, "log"), fb.F.orderBy("waktu", "desc"), fb.F.limit(300)));
     return s.docs.map(d => ({ id: d.id, ...d.data() }));
   },
+  async getAI() {
+    if (IS_PREVIEW) return mem.ai || {};
+    const s = await fb.F.getDoc(fb.F.doc(fb.db, "konfigurasi", "ai")); return s.exists() ? s.data() : {};
+  },
+  async saveAI(d) {
+    if (IS_PREVIEW) { mem.ai = d; return; }
+    await fb.F.setDoc(fb.F.doc(fb.db, "konfigurasi", "ai"), d);
+  },
+  async countProyek() {
+    if (IS_PREVIEW) return mem.proyek.length;
+    const s = await fb.F.getCountFromServer(fb.F.collection(fb.db, "proyek")); return s.data().count;
+  },
   async getSet(uid) {
     if (IS_PREVIEW) return mem.set[uid] || {};
     const s = await fb.F.getDoc(fb.F.doc(fb.db, "pengaturan", uid)); return s.exists() ? s.data() : {};
@@ -213,24 +225,49 @@ function pesanGalat(e) {
 }
 
 /* ============ AI ============ */
-const provCfg = () => ({ provider: S.set.provider || "gemini", model: S.set.model || PROV[S.set.provider || "gemini"].model, key: S.set.apiKey });
-async function panggilAI(prompt, system) {
+const normAI = a => ({ provider: PROV[a && a.provider] ? a.provider : "gemini", model: (a && a.model) || "", apiKey: (a && a.apiKey) || "" });
+const provCfg = () => { const p = PROV[S.ai.provider] ? S.ai.provider : "gemini"; return { provider: p, model: S.ai.model || PROV[p].model, key: (S.ai.apiKey || "").trim() }; };
+async function segarkanAI() { try { S.ai = normAI(await DB.getAI()); } catch (e) {} }
+async function siapAI() { await segarkanAI(); return cekAI(); }
+function pesanAPI(msg, status) {
+  msg = String(msg || "");
+  if (status === 401 || /api key not valid|invalid api key|incorrect api key|invalid x-api-key|api_key_invalid|authentication_error/i.test(msg)) return "Kunci API tidak valid. Admin perlu mengisi kunci yang benar di menu Pengaturan AI.";
+  if (status === 403 || /permission|referer|not allowed|blocked/i.test(msg)) return "Kunci API ditolak (izin atau pembatasan domain). Periksa pembatasan kunci di konsol penyedia AI. " + msg;
+  if (status === 429 || /quota|rate limit|resource_exhausted/i.test(msg)) return "Batas penggunaan AI tercapai atau server sedang ramai. Tunggu sebentar lalu coba lagi.";
+  return msg || "Permintaan ke AI gagal.";
+}
+const galatAPI = (res, j, def) => { const e = new Error(pesanAPI(j && j.error ? (j.error.message || j.error) : def, res.status)); e.status = res.status; return e; };
+async function panggilSekali(prompt, system) {
   const { provider, model, key } = provCfg();
-  if (!key) throw new Error("Kunci API belum diisi. Buka menu Pengaturan.");
+  if (!key) throw new Error("AI belum diaktifkan. Admin perlu mengisi kunci API di menu Pengaturan AI.");
   let res, j;
   if (provider === "gemini") {
     res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, responseMimeType: "application/json" } }) });
-    j = await res.json(); if (!res.ok) throw new Error(j.error?.message || "Permintaan ke Gemini gagal.");
+    j = await res.json().catch(() => ({})); if (!res.ok) throw galatAPI(res, j, "Permintaan ke Gemini gagal.");
     return (j.candidates?.[0]?.content?.parts || []).map(p => p.text || "").join("");
   }
   if (provider === "openai") {
     res = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + key }, body: JSON.stringify({ model, temperature: 0.7, response_format: { type: "json_object" }, messages: [{ role: "system", content: system }, { role: "user", content: prompt }] }) });
-    j = await res.json(); if (!res.ok) throw new Error(j.error?.message || "Permintaan ke OpenAI gagal.");
+    j = await res.json().catch(() => ({})); if (!res.ok) throw galatAPI(res, j, "Permintaan ke OpenAI gagal.");
     return j.choices?.[0]?.message?.content || "";
   }
   res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify({ model, max_tokens: 12000, system, messages: [{ role: "user", content: prompt }] }) });
-  j = await res.json(); if (!res.ok) throw new Error(j.error?.message || "Permintaan ke Claude gagal.");
+  j = await res.json().catch(() => ({})); if (!res.ok) throw galatAPI(res, j, "Permintaan ke Claude gagal.");
   return (j.content || []).map(c => c.text || "").join("");
+}
+// Banyak guru bisa memakai AI bersamaan: bila server sibuk / batas laju tercapai, ulangi otomatis.
+async function panggilAI(prompt, system) {
+  const jeda = [2500, 6000, 12000];
+  for (let i = 0; ; i++) {
+    try { return await panggilSekali(prompt, system); }
+    catch (e) {
+      if (e instanceof TypeError) { e = new Error("Tidak dapat terhubung ke server AI. Periksa koneksi internet."); e.status = 503; }
+      const sibukAI = [429, 500, 502, 503, 504].includes(e.status) || /overloaded|high demand|unavailable/i.test(e.message || "");
+      if (!sibukAI || i >= jeda.length) throw e;
+      if (S.status) { S.status.teks = `Server AI sedang ramai, mencoba lagi (${i + 1}/${jeda.length})…`; render(); }
+      await new Promise(r => setTimeout(r, jeda[i] + Math.random() * 1500));
+    }
+  }
 }
 function bacaJSON(t) {
   t = String(t).replace(/```json|```/gi, "").trim();
@@ -247,11 +284,11 @@ function rancangSlot(W) {
   const lv = []; for (let i = 0; i < n; i++) lv.push(i < nL ? "LOTS" : i < nL + nM ? "MOTS" : "HOTS");
   const out = []; let no = 0;
   URUT.forEach(b => { for (let i = 0; i < (+W.jumlah[b] || 0); i++) { no++; out.push({ no, bentuk: b, level: b === "ur" ? "HOTS" : lv[Math.floor(((no * 0.6180339) % 1) * n)] || "MOTS", tp: tps.length ? tps[(no - 1) % tps.length] : "" }); } });
-  const N = Math.max(0, Math.min(+W.gambar || 0, 30)), el = out.filter(s => s.bentuk !== "mj"), k = Math.min(N, el.length);
+  const N = Math.max(0, Math.min(+W.gambar || 0, 30)), el = out.filter(s => ["pg", "pgk", "bs", "ur"].includes(s.bentuk)), k = Math.min(N, el.length);
   for (let i = 0; i < k; i++) el[Math.floor((i + 0.5) * el.length / k)].gambar = true;
   return out;
 }
-const SPEC_SVG = `Aturan gambar: kode SVG mandiri (satu elemen <svg> dengan xmlns dan viewBox="0 0 400 260"), tanpa script, tanpa <image> atau tautan eksternal, atribut memakai tanda kutip tunggal, teks di dalam gambar singkat dan jelas (font-size 12–16), warna kontras di latar putih. Gambar harus fungsional dan sesuai mata pelajaran: diagram, grafik, bangun datar/ruang, denah, alat/objek, siklus, tabel visual, atau ilustrasi situasi. Angka dan label di gambar harus konsisten dengan kunci jawaban.`;
+const SPEC_SVG = `Aturan gambar: kode SVG mandiri (satu elemen <svg> dengan xmlns dan viewBox="0 0 400 260"), tanpa script, tanpa <image> atau tautan eksternal, atribut memakai tanda kutip tunggal. Tampilan harus MENARIK: gaya flat modern, palet warna cerah dan serasi (biru, oranye, hijau, ungu), latar lembut atau gradien (<defs><linearGradient>), bentuk membulat (rx), bayangan halus, komposisi rapi dan seimbang, garis tebal jelas, label berukuran font 13–16 dengan kontras baik, tanpa elemen yang bertumpuk. Gambar harus fungsional dan sesuai mata pelajaran: diagram, grafik batang/garis/lingkaran, bangun datar/ruang, denah, alat/objek, siklus, tabel visual, atau ilustrasi situasi. Angka dan label di gambar harus konsisten dengan kunci jawaban.`;
 const SPEC_GAMBAR = `GAMBAR: untuk nomor bertanda "WAJIB BERGAMBAR", tambahkan field "gambar" (kode SVG) dan "ketGambar" (keterangan satu kalimat). Soal harus memerlukan gambar untuk dijawab dan menyebut "perhatikan gambar". ` + SPEC_SVG;
 function promptBatch(W, grup, ada) {
   const spec = `FORMAT KELUARAN: satu objek JSON {"soal":[...]} berisi satu objek per nomor yang diminta, urut nomor. Isi objek menurut bentuk:
@@ -259,6 +296,7 @@ function promptBatch(W, grup, ada) {
 - pgk: sama dengan pg tetapi "opsi" berisi 5 pilihan dan "kunci" berupa array indeks (minimal 2 jawaban benar, tidak semua).
 - bs: {"no":n,"stimulus":"","soal":"petunjuk/pokok","pernyataan":[{"teks":"","benar":true}] (3-4 butir, campur benar dan salah),"indikator":"","pembahasan":""}
 - mj: {"no":n,"stimulus":"","soal":"petunjuk","pasangan":[{"kiri":"","kanan":""}] (3-4 pasang),"pengecoh":["satu opsi kanan tambahan"],"indikator":"","pembahasan":""}
+- is (isian singkat): {"no":n,"stimulus":"","soal":"kalimat dengan bagian yang dikosongkan (....) atau pertanyaan yang dijawab satu kata/frasa/angka","kunci":"jawaban singkat","indikator":"","pembahasan":""}
 - ur: {"no":n,"stimulus":"","soal":"","kunci":"jawaban ideal","rubrik":[{"skor":angka,"kriteria":""}] (jumlah skor = ${W.skor.ur}),"indikator":"","pembahasan":""}`;
   const slots = grup.map(s => `No ${s.no} | bentuk ${s.bentuk} (${BENTUK[s.bentuk]}) | level ${s.level} | TP: ${s.tp || "-"}${s.gambar ? " | WAJIB BERGAMBAR" : ""}`).join("\n");
   const sudah = ada.slice(-30).map(q => "- " + q.soal.slice(0, 70)).join("\n");
@@ -292,6 +330,8 @@ function norm(r, s, W) {
     const ps = (r.pasangan || []).map(p => ({ kiri: str(p.kiri), kanan: str(p.kanan) })).filter(p => p.kiri && p.kanan); if (ps.length < 2) return null;
     const semua = ps.map(p => p.kanan).concat((r.pengecoh || []).map(str).filter(Boolean)); const urut = acak(semua.length);
     q.kiri = ps.map(p => p.kiri); q.kanan = urut.map(i => semua[i]); q.kunci = ps.map((_, i) => urut.indexOf(i));
+  } else if (s.bentuk === "is") {
+    q.kunci = str(r.kunci); if (!q.kunci) return null;
   } else {
     q.kunci = str(r.kunci); if (!q.kunci) return null;
     let rb = (r.rubrik || []).map(x => ({ skor: Number(x.skor) || 0, kriteria: str(x.kriteria) })).filter(x => x.kriteria);
@@ -324,11 +364,12 @@ function itemHTML(q) {
   if (q.bentuk === "pg" || q.bentuk === "pgk") h += q.opsi.map((o, i) => `<div style="margin-left:22px">${HURUF[i]}. ${esc(o)}</div>`).join("");
   if (q.bentuk === "bs") h += `<table><tr><th>Pernyataan</th><th class="c" style="width:60px">Benar</th><th class="c" style="width:60px">Salah</th></tr>${q.pernyataan.map(p => `<tr><td>${esc(p.teks)}</td><td></td><td></td></tr>`).join("")}</table>`;
   if (q.bentuk === "mj") h += `<table class="nb"><tr><td style="width:55%">${q.kiri.map((k, i) => `<div>${i + 1}. ${esc(k)} ( &nbsp;&nbsp; )</div>`).join("")}</td><td>${q.kanan.map((k, i) => `<div>${HURUF[i]}. ${esc(k)}</div>`).join("")}</td></tr></table>`;
+  if (q.bentuk === "is") h += `<p style="margin-left:22px">Jawaban: ................................................</p>`;
   if (q.bentuk === "ur") h += `<p>&nbsp;</p>`;
   return h;
 }
-const INSTR = { pg: "Pilihlah satu jawaban yang paling tepat!", pgk: "Pilihlah dua atau lebih jawaban yang benar!", bs: "Tentukan Benar atau Salah setiap pernyataan dengan memberi tanda centang!", mj: "Jodohkan pernyataan di kiri dengan jawaban di kanan!", ur: "Jawablah pertanyaan berikut dengan uraian yang jelas!" };
-const ROM = ["I", "II", "III", "IV", "V"];
+const INSTR = { pg: "Pilihlah satu jawaban yang paling tepat!", pgk: "Pilihlah dua atau lebih jawaban yang benar!", bs: "Tentukan Benar atau Salah setiap pernyataan dengan memberi tanda centang!", mj: "Jodohkan pernyataan di kiri dengan jawaban di kanan!", is: "Isilah titik-titik dengan jawaban singkat dan tepat!", ur: "Jawablah pertanyaan berikut dengan uraian yang jelas!" };
+const ROM = ["I", "II", "III", "IV", "V", "VI"];
 const sorted = W => [...W.soal].sort((a, b) => a.no - b.no);
 const DOK = {
   kisi: ["Kisi-kisi", W => head(W, "KISI-KISI " + JENIS[W.jenis].nama.toUpperCase()) + `<table><tr><th>No</th><th>Tujuan Pembelajaran</th><th>Indikator Soal</th><th>Level</th><th>Bentuk</th><th>Skor</th></tr>${sorted(W).map(q => `<tr><td class="c">${q.no}</td><td>${esc(q.tp || "-")}</td><td>${esc(q.indikator || "-")}</td><td class="c">${q.level}</td><td>${BENTUK[q.bentuk]}</td><td class="c">${q.skor}</td></tr>`).join("")}</table>`],
@@ -345,6 +386,7 @@ const DOK = {
       if (q.bentuk === "pg" || q.bentuk === "pgk") k = kunciTeks(q);
       else if (q.bentuk === "bs") k = q.pernyataan.map((p, i) => `${i + 1}) ${p.benar ? "Benar" : "Salah"}`).join("; ");
       else if (q.bentuk === "mj") k = q.kiri.map((_, i) => `${i + 1}–${HURUF[q.kunci[i]]}`).join("; ");
+      else if (q.bentuk === "is") k = q.kunci;
       else k = nl(q.kunci);
       h += `<p class="soal"><b>No. ${q.no}</b> (${BENTUK[q.bentuk]}, skor ${q.skor}, ${q.level}) — Kunci: ${q.bentuk === "ur" ? k : esc(k)}</p>`;
       if (q.bentuk === "ur" && q.rubrik) h += `<table><tr><th>Kriteria</th><th style="width:60px">Skor</th></tr>${q.rubrik.map(x => `<tr><td>${esc(x.kriteria)}</td><td class="c">${x.skor}</td></tr>`).join("")}</table>`;
@@ -388,7 +430,7 @@ const card = (inner, cls = "") => `<div class="glass rounded-2xl shadow-sm ${cls
 const empty = (t, s = "") => `<div class="text-center py-14 text-slate-400"><div class="text-4xl mb-2">🗂️</div><div class="font-bold text-slate-500">${t}</div><div class="text-sm mt-1">${s}</div></div>`;
 const MENU = {
   guru: [["beranda", "Beranda", "home"], ["buat", "Buat Asesmen", "file"], ["proyek", "Bank Proyek", "folder"], ["pengaturan", "Pengaturan", "cog"]],
-  admin: [["dash", "Dashboard", "chart"], ["guru", "Kelola Guru", "users"], ["riwayat", "Riwayat", "clock"]]
+  admin: [["dash", "Dashboard", "chart"], ["guru", "Kelola Guru", "users"], ["ai", "Pengaturan AI", "cog"], ["riwayat", "Riwayat", "clock"]]
 };
 function toast(t, k = "ok") {
   const el = document.createElement("div"); el.className = "toastbox"; el.style.background = k === "err" ? "#dc2626" : k === "warn" ? "#d97706" : "#059669"; el.textContent = t;
@@ -422,7 +464,7 @@ const loadingView = () => `<div class="h-full grid place-items-center"><div clas
 
 function shell() {
   const m = MENU[S.role], nama = S.user.nama || S.user.email || "Pengguna";
-  const body = ({ beranda: vBeranda, buat: vBuat, proyek: vProyek, pengaturan: vPengaturan, dash: vDash, guru: vGuru, riwayat: vRiwayat }[S.view] || vBeranda)();
+  const body = ({ beranda: vBeranda, buat: vBuat, proyek: vProyek, pengaturan: vPengaturan, dash: vDash, guru: vGuru, ai: vAI, riwayat: vRiwayat }[S.view] || vBeranda)();
   return `<aside class="hidden md:flex flex-col fixed inset-y-0 left-0 w-64 glass border-r p-5 z-20">
     <div class="flex items-center gap-3 mb-8"><div class="w-10 h-10 rounded-2xl bg-amber-500 grid place-items-center text-white shadow">${ic("spark", 20)}</div><div class="font-extrabold text-navy leading-tight text-sm">GENERATOR SOAL<br>SIEMHALIK</div></div>
     <nav class="space-y-1 flex-1">${m.map(([k, t, i]) => `<button data-act="nav" data-v="${k}" class="navi ${S.view === k ? "on" : ""}">${ic(i)} ${t}</button>`).join("")}</nav>
@@ -456,14 +498,22 @@ function vProyek() {
 
 /* ----- Guru: pengaturan ----- */
 function vPengaturan() {
-  const p = S.set.provider || "gemini";
-  return title("Pengaturan", "Penyedia AI untuk menyusun soal.") +
+  const c = provCfg(), aktif = !!c.key;
+  return title("Pengaturan", "Status AI penyusun soal.") +
+    card(`<div class="p-6 space-y-4 max-w-xl"><div class="flex items-center gap-3"><span class="w-3 h-3 rounded-full ${aktif ? "bg-emerald-500" : "bg-red-500"}"></span><div class="font-extrabold text-navy">${aktif ? "AI aktif dan berjalan otomatis" : "AI belum diaktifkan"}</div></div>
+      <div class="text-sm text-slate-500">Penyedia: <b>${PROV[c.provider].nama}</b> · Model: <b>${esc(c.model)}</b></div>
+      <p class="text-sm text-slate-500">Kunci API dikelola admin, Anda tidak perlu mengisi apa pun. ${aktif ? "" : "Hubungi admin untuk mengisi kunci API."}</p>
+      <button data-act="ujiAI" class="btn btn-n" ${S.sibuk ? "disabled" : ""}>${ic("spark")} Uji koneksi AI</button></div>`);
+}
+function vAI() {
+  const a = S.ai, p = PROV[a.provider] ? a.provider : "gemini";
+  return title("Pengaturan AI", "Satu kunci API dipakai bersama oleh semua guru, sehingga guru tidak perlu mengisi apa pun.") +
     card(`<div class="p-6 space-y-4 max-w-xl">
-      ${fld("Penyedia AI", sel("set.provider", p, Object.entries(PROV).map(([k, v]) => [k, v.nama]), 'data-chg="gantiProv"'))}
-      ${fld("Model", inp("set.model", S.set.model || "", `placeholder="${PROV[p].model}"`))}
-      ${fld("Kunci API", inp("set.apiKey", S.set.apiKey || "", 'type="password" autocomplete="off" placeholder="Tempel kunci API"'))}
-      <div class="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">Demi keamanan, <b>kunci API tidak disimpan</b> di database. Isi lagi setiap sesi. Penyedia dan model disimpan otomatis ke akun Anda.</div>
-      <button data-act="simpanSet" class="btn btn-n">${ic("save")} Simpan</button></div>`);
+      ${fld("Penyedia AI", sel("ai.provider", p, Object.entries(PROV).map(([k, v]) => [k, v.nama]), 'data-chg="gantiProv"'))}
+      ${fld("Model", inp("ai.model", a.model || "", `placeholder="${PROV[p].model}"`))}
+      ${fld("Kunci API", inp("ai.apiKey", a.apiKey || "", 'type="password" autocomplete="off" placeholder="Tempel kunci API yang valid"'))}
+      <div class="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 space-y-1"><div><b>Keamanan:</b> aplikasi ini tidak memiliki server, jadi kunci disimpan di Firestore dan dapat dibaca oleh aplikasi. Batasi kunci agar tidak disalahgunakan:</div><div>• Batasi kunci ke domain aplikasi Anda (HTTP referrers) di konsol penyedia AI.</div><div>• Pasang batas kuota atau anggaran, dan jangan memakai kunci yang terhubung ke tagihan besar.</div></div>
+      <div class="flex flex-wrap gap-2"><button data-act="simpanAI" class="btn btn-n">${ic("save")} Simpan</button><button data-act="ujiAI" class="btn btn-s" ${S.sibuk ? "disabled" : ""}>${ic("spark")} Uji koneksi</button></div></div>`);
 }
 
 /* ----- Guru: wizard ----- */
@@ -501,12 +551,11 @@ function step2() {
 function step3() {
   const W = S.W;
   return card(`<div class="p-5 md:p-7">
-    <div class="lbl mb-2">Jumlah soal dan skor per butir</div>
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-3">${URUT.map(b => `<div class="rounded-2xl bg-slate-50 p-3"><div class="text-xs font-extrabold text-navy mb-2">${BENTUK[b]}</div><span class="lbl">Jumlah</span><input class="inp" type="number" min="0" max="50" data-k="W.jumlah.${b}" data-n="1" data-inp="updTotals" value="${W.jumlah[b]}"><span class="lbl mt-2">Skor/butir</span><input class="inp" type="number" min="0" step="0.5" data-k="W.skor.${b}" data-n="1" data-inp="updTotals" value="${W.skor[b]}"></div>`).join("")}</div>
+    <div class="lbl mb-2">Struktur soal: jumlah dan skor per butir</div>
+    <div class="overflow-x-auto rounded-2xl border border-slate-100 bg-white/70"><table class="w-full text-sm"><thead><tr class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-400"><th class="p-3">Bentuk soal</th><th class="p-3 w-28">Jumlah</th><th class="p-3 w-32">Skor/butir</th><th class="p-3 w-24 text-right">Subtotal</th></tr></thead><tbody>${URUT.map(b => `<tr class="border-t border-slate-100"><td class="p-3 font-bold text-navy">${BENTUK[b]}</td><td class="p-2"><input class="inp !mt-0" type="number" min="0" max="50" data-k="W.jumlah.${b}" data-n="1" data-inp="updTotals" value="${W.jumlah[b] ?? 0}"></td><td class="p-2"><input class="inp !mt-0" type="number" min="0" step="0.5" data-k="W.skor.${b}" data-n="1" data-inp="updTotals" value="${W.skor[b] ?? 0}"></td><td class="p-3 text-right font-bold text-slate-500" id="sub_${b}">${Math.round((+W.jumlah[b] || 0) * (+W.skor[b] || 0) * 10) / 10}</td></tr>`).join("")}</tbody></table></div>
     <div class="lbl mt-6 mb-2">Sebaran level kognitif (%)</div>
     <div class="grid grid-cols-3 gap-3 max-w-xl">${Object.entries(LEVEL).map(([k, t]) => `<div><span class="lbl">${t}</span><input class="inp" type="number" min="0" max="100" data-k="W.dist.${k}" data-n="1" value="${W.dist[k]}"></div>`).join("")}</div>
-    <div class="lbl mt-6 mb-2">Soal bergambar (dibuat otomatis oleh AI)</div>
-    <div class="max-w-md"><span class="lbl">Jumlah soal bergambar</span><input class="inp" type="number" min="0" max="20" data-k="W.gambar" data-n="1" value="${W.gambar}"><p class="text-xs text-slate-400 mt-1">AI menggambar sendiri (grafik, diagram, bangun, denah, ilustrasi) dan menyebarkannya pada soal PG, PG kompleks, Benar/Salah, dan uraian. Isi 0 untuk tanpa gambar.</p></div>
+    <div class="mt-6 rounded-2xl border-2 border-amber-200 bg-amber-50/60 p-4"><div class="flex flex-wrap items-center gap-4"><div class="grow min-w-[220px]"><div class="font-extrabold text-navy">Soal bergambar (dibuat otomatis oleh AI)</div><p class="text-xs text-slate-500 mt-1">AI menggambar sendiri (grafik, diagram, bangun, denah, ilustrasi) dengan tampilan yang menarik dan menyebarkannya pada soal PG, PG kompleks, Benar/Salah, dan uraian. Isi 0 untuk tanpa gambar.</p></div><div class="w-32"><span class="lbl">Jumlah gambar</span><input class="inp" type="number" min="0" max="20" data-k="W.gambar" data-n="1" value="${W.gambar}"></div></div></div>
     <div class="mt-6 rounded-2xl bg-navy text-white p-4 flex flex-wrap gap-6"><div><div class="text-[10px] uppercase font-bold text-slate-300">Total soal</div><div class="text-2xl font-extrabold" id="totSoal">${totalSoal(W)}</div></div><div><div class="text-[10px] uppercase font-bold text-slate-300">Total skor</div><div class="text-2xl font-extrabold" id="totSkor">${Math.round(totalSkor(W) * 10) / 10}</div></div></div>
     <div class="flex justify-between mt-6"><button data-act="step" data-n="2" class="btn btn-s">← Kembali</button><button data-act="buatSemua" data-lanjut="0" class="btn btn-p">${ic("spark")} Buat Soal dengan AI</button></div></div>`);
 }
@@ -534,7 +583,7 @@ function vDash() {
   const hari = [...Array(7)].map((_, i) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (6 - i)); return d; });
   const cnt = hari.map(d => S.log.filter(l => l.waktu >= d.getTime() && l.waktu < d.getTime() + 86400000).length), mx = Math.max(1, ...cnt);
   return title("Dashboard", "Ringkasan penggunaan aplikasi.", `<button data-act="muatAdmin" class="btn btn-s">${ic("refresh")} Muat ulang</button>`) +
-    `<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">${stat("Guru", S.users.length, "#1e3a5f")}${stat("Guru aktif", S.users.filter(u => u.aktif !== false).length, "#059669")}${stat("Proyek", S.proyekAll.length, "#d97706")}${stat("Aktivitas 7 hari", cnt.reduce((a, b) => a + b, 0), "#7c3aed")}</div>` +
+    `<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">${stat("Guru", S.users.length, "#1e3a5f")}${stat("Guru aktif", S.users.filter(u => u.aktif !== false).length, "#059669")}${stat("Proyek", S.proyekCount, "#d97706")}${stat("Aktivitas 7 hari", cnt.reduce((a, b) => a + b, 0), "#7c3aed")}</div>` +
     card(`<div class="p-5"><div class="font-extrabold text-navy mb-4">Aktivitas 7 hari terakhir</div><div class="flex items-end gap-3 h-44">${cnt.map((c, i) => `<div class="flex-1 flex flex-col items-center justify-end h-full gap-1"><div class="text-xs font-bold text-slate-500">${c}</div><div class="bar w-full rounded-t-lg" style="height:${Math.max(4, c / mx * 100)}%;background:linear-gradient(180deg,#f59e0b,#1e3a5f)"></div><div class="text-[10px] text-slate-400 font-bold">${hari[i].toLocaleDateString("id-ID", { weekday: "short" })}</div></div>`).join("")}</div></div>`);
 }
 function vGuru() {
@@ -583,20 +632,30 @@ async function setSession(u, role) {
   S.user = u; S.role = role; S.view = role === "admin" ? "dash" : "beranda"; S.W = newW(); S.pesan = null; S.top = true;
   if (role === "guru") {
     S.W.sekolah = u.sekolah || ""; S.W.penyusun = u.nama || "";
-    const [pr, st] = await Promise.all([DB.listProyek(u.id), DB.getSet(u.id)]);
-    S.proyek = pr; S.set = { provider: st.provider || "gemini", model: st.model || "", apiKey: "" };
-  } else await muatAdmin(true);
+    const [pr, ai] = await Promise.all([DB.listProyek(u.id), DB.getAI().catch(() => ({}))]);
+    S.proyek = pr; S.ai = normAI(ai);
+  } else { await muatAdmin(true); S.ai = normAI(await DB.getAI().catch(() => ({}))); }
   catat("login");
 }
 async function muatAdmin(silent) {
-  try { [S.users, S.log, S.proyekAll] = await Promise.all([DB.listUsers(), DB.listLog(), DB.listProyek(null)]); } catch (e) { toast(pesanGalat(e), "err"); }
+  try { [S.users, S.log, S.proyekCount] = await Promise.all([DB.listUsers(), DB.listLog(), DB.countProyek()]); } catch (e) { toast(pesanGalat(e), "err"); }
   if (!silent) render();
 }
-function cekAI() { if (IS_PREVIEW || S.set.apiKey) return true; toast("Isi kunci API di menu Pengaturan terlebih dahulu.", "warn"); return false; }
-function updTotals() { const a = $("#totSoal"), b = $("#totSkor"); if (a) a.textContent = totalSoal(S.W); if (b) b.textContent = Math.round(totalSkor(S.W) * 10) / 10; }
+function cekAI() { if (provCfg().key) return true; toast("AI belum diaktifkan. Admin perlu mengisi kunci API di menu Pengaturan AI.", "warn"); return false; }
+function updTotals() { const a = $("#totSoal"), b = $("#totSkor"); if (a) a.textContent = totalSoal(S.W); if (b) b.textContent = Math.round(totalSkor(S.W) * 10) / 10; URUT.forEach(k => { const e = $("#sub_" + k); if (e) e.textContent = Math.round((+S.W.jumlah[k] || 0) * (+S.W.skor[k] || 0) * 10) / 10; }); }
 const H = {
   rerender: () => render(),
-  gantiProv: () => { S.set.model = ""; render(); },
+  gantiProv: () => { S.ai.model = ""; render(); },
+  async simpanAI() {
+    const a = S.ai; a.apiKey = (a.apiKey || "").trim(); if (!a.apiKey) return toast("Isi kunci API terlebih dahulu.", "warn");
+    try { await DB.saveAI({ provider: PROV[a.provider] ? a.provider : "gemini", model: (a.model || "").trim(), apiKey: a.apiKey, updated: Date.now() }); toast("Pengaturan AI tersimpan. Semua guru memakai kunci ini otomatis."); } catch (e) { toast(pesanGalat(e), "err"); }
+  },
+  async ujiAI() {
+    if (S.sibuk) return; if (S.role !== "admin") await segarkanAI(); if (!cekAI()) return;
+    S.sibuk = true; render();
+    try { bacaJSON(await panggilAI('Balas hanya dengan JSON {"ok":true}', "Keluarkan hanya JSON yang sah.")); toast("Koneksi AI berhasil. AI siap dipakai."); } catch (e) { toast(pesanGalat(e), "err"); }
+    S.sibuk = false; render();
+  },
   gantiJenjang: v => { const W = S.W, kls = JENJANG[v].kelas[0], mp = MAPEL[v]; W.jenjang = v; W.kelas = kls; if (W.mapel !== "__lain" && !mp.includes(W.mapel)) W.mapel = mp.includes("Matematika") ? "Matematika" : mp[0]; render(); },
   updTotals,
   nav: d => { S.view = d.v; S.top = true; if (S.role === "admin") muatAdmin(); else render(); },
@@ -620,7 +679,7 @@ const H = {
   },
   async logout() {
     try { if (!IS_PREVIEW && S.role === "admin" && fb) await fb.Au.signOut(fb.auth); } catch (e) {}
-    Object.assign(S, { user: null, role: null, view: "login", W: newW(), proyek: [], users: [], log: [], proyekAll: [], set: { provider: "gemini", model: "", apiKey: "" }, pesan: null, modal: null, f: { id: "", pw: "" } }); render();
+    Object.assign(S, { user: null, role: null, view: "login", W: newW(), proyek: [], users: [], log: [], proyekAll: [], proyekCount: 0, ai: { provider: "gemini", model: "", apiKey: "" }, pesan: null, modal: null, f: { id: "", pw: "" } }); render();
   },
   tutup: () => { S.modal = null; render(); },
   ya: () => { const k = S.konf; S.modal = null; S.konf = null; render(); H[k.act](k.arg || {}); },
@@ -640,7 +699,7 @@ const H = {
   async tpAI() {
     const W = S.W; if (S.sibuk) return;
     if (!W.cp.trim() && !W.materi.trim()) return toast("Isi CP atau materi terlebih dahulu.", "warn");
-    if (!cekAI()) return;
+    if (!(await siapAI())) return;
     S.sibuk = true; S.pesan = null; render();
     try {
       const t = await panggilAI(`${konteks(W)}\n\nTUGAS: Rumuskan tujuan pembelajaran (TP) yang dapat diukur lewat tes tertulis untuk ${JENIS[W.jenis].nama}, diturunkan dari CP${W.materi.trim() ? " dan dibatasi pada materi yang disebutkan" : ""}. Tiap TP memuat kompetensi (kata kerja operasional) dan lingkup materi, satu kalimat. Jumlah: ${W.jenis === "formatif" ? "2–4" : W.jenis === "sumatif" ? "3–6" : "6–10"} TP.\nKeluarkan JSON: {"tp":["..."]}`, "Anda ahli kurikulum Indonesia. Keluarkan hanya JSON yang sah.");
@@ -651,7 +710,7 @@ const H = {
     S.sibuk = false; render();
   },
   async buatSemua(d) {
-    if (S.sibuk || !cekAI()) return;
+    if (S.sibuk || !(await siapAI())) return;
     const lanjut = d.lanjut === "1", W = S.W; S.sibuk = true; batal = false; S.pesan = null; if (!lanjut) W.soal = []; W.step = 4; W.tab = "soal"; render();
     const rencana = rancangSlot(W), ada = new Set(W.soal.map(q => q.no)), antre = rencana.filter(s => !ada.has(s.no)); let galat = "";
     try {
@@ -670,7 +729,7 @@ const H = {
     render();
   },
   async gambarAI(d) {
-    if (S.sibuk || !cekAI()) return; const W = S.W, no = +d.no, q = W.soal.find(x => x.no === no); if (!q) return;
+    if (S.sibuk || !(await siapAI())) return; const W = S.W, no = +d.no, q = W.soal.find(x => x.no === no); if (!q) return;
     S.sibuk = true; S.status = { teks: `Membuat gambar untuk soal nomor ${no}…`, frac: null }; S.pesan = null; render();
     try {
       let svg, ket = "";
@@ -684,7 +743,7 @@ const H = {
     S.sibuk = false; S.status = null; render();
   },
   async ganti(d) {
-    if (S.sibuk || !cekAI()) return; const W = S.W, no = +d.no, lama = W.soal.find(q => q.no === no); if (!lama) return;
+    if (S.sibuk || !(await siapAI())) return; const W = S.W, no = +d.no, lama = W.soal.find(q => q.no === no); if (!lama) return;
     const slot = { ...(rancangSlot(W).find(s => s.no === no && s.bentuk === lama.bentuk) || { no, bentuk: lama.bentuk, level: lama.level || "MOTS", tp: lama.tp }), gambar: !!lama.gambar };
     S.sibuk = true; S.status = { teks: `Mengganti soal nomor ${no}…`, frac: null }; S.pesan = null; render();
     try { const h = await buatBatch({ ...W, soal: W.soal.filter(q => q.no !== no) }, [slot]); if (h.length) { W.soal = W.soal.map(q => q.no === no ? h[0] : q); S.pesan = { k: "ok", t: `Soal nomor ${no} sudah diganti.` }; } else S.pesan = { k: "warn", t: "Soal pengganti tidak berhasil dibuat. Coba lagi." }; }
@@ -743,13 +802,10 @@ const H = {
   },
   bukaProyek(d) {
     const p = S.proyek.find(x => x.id === d.id); if (!p) return;
-    try { S.W = Object.assign(newW(), JSON.parse(p.data), { id: p.id }); S.W.step = S.W.soal.length ? 4 : 3; S.pesan = null; S.view = "buat"; S.top = true; render(); } catch (e) { toast("Data proyek tidak dapat dibaca.", "err"); }
+    try { const d0 = JSON.parse(p.data); S.W = Object.assign(newW(), d0, { id: p.id }); S.W.jumlah = { ...newW().jumlah, ...(d0.jumlah || {}) }; S.W.skor = { ...SKOR0, ...(d0.skor || {}) }; S.W.dist = { ...newW().dist, ...(d0.dist || {}) }; S.W.step = S.W.soal.length ? 4 : 3; S.pesan = null; S.view = "buat"; S.top = true; render(); } catch (e) { toast("Data proyek tidak dapat dibaca.", "err"); }
   },
   konfHapusProyek: d => { S.konf = { teks: "Hapus proyek ini secara permanen?", act: "hapusProyek", arg: d }; S.modal = "konfirm"; render(); },
   async hapusProyek(d) { try { await DB.delProyek(d.id); S.proyek = S.proyek.filter(p => p.id !== d.id); toast("Proyek dihapus."); } catch (e) { toast(pesanGalat(e), "err"); } render(); },
-  async simpanSet() {
-    try { await DB.saveSet(S.user.id, { provider: S.set.provider, model: S.set.model || "" }); toast("Pengaturan tersimpan."); } catch (e) { toast(pesanGalat(e), "err"); }
-  },
   /* ekspor */
   async wordTab() { const W = S.W, t = W.tab; if (t === "soal") return; try { await ekspor(nmBerkas(DOK[t][0]), () => DOK[t][1](W), W); catat("ekspor", DOK[t][0]); } catch (e) { toast(pesanGalat(e), "err"); } },
   async wordAll() { const W = S.W; try { await ekspor(nmBerkas("Paket"), () => ["kisi", "naskah", "kunci"].map((k, i) => `<div class="${i ? "pb" : ""}">${DOK[k][1](W)}</div>`).join(""), W); catat("ekspor", "Paket lengkap"); } catch (e) { toast(pesanGalat(e), "err"); } },
@@ -795,6 +851,8 @@ app.addEventListener("change", e => { const t = e.target; if (t.dataset.k) setPa
 app.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.dataset.enter && H[e.target.dataset.enter]) { e.preventDefault(); H[e.target.dataset.enter](); } });
 
 /* ============ BOOT ============ */
+// Penyegaran otomatis data admin (aman untuk banyak pengguna bersamaan)
+setInterval(() => { if (S.user && S.role === "admin" && !S.modal && !S.sibuk && !document.hidden && ["dash", "riwayat", "guru"].includes(S.view)) muatAdmin(); }, 60000);
 (async function boot() {
   render();
   if (IS_PREVIEW) { await seedPreview(); S.ready = true; render(); return; }
