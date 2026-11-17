@@ -15,7 +15,7 @@
 body{margin:0;font-family:"Plus Jakarta Sans",system-ui,sans-serif;background:#fff}
 #app{position:fixed;inset:0;overflow-y:auto;z-index:99999;background:#fff;color:#0f172a}
 #app::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;background:radial-gradient(600px 400px at 90% -5%,rgba(245,158,11,.13),transparent 60%),radial-gradient(700px 500px at -10% 10%,rgba(30,58,95,.10),transparent 60%),radial-gradient(500px 400px at 50% 110%,rgba(59,130,246,.08),transparent 60%)}
-#app>*{position:relative;z-index:1}
+#app>*:not(.fixed){position:relative;z-index:1}
 .glass{background:rgba(255,255,255,.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(226,232,240,.9)}
 .inp{width:100%;margin-top:4px;background:#f8fafc;border:2px solid #f1f5f9;border-radius:12px;padding:10px 14px;font-weight:600;color:#1e293b;outline:none;transition:.15s;font-size:14px}
 .inp:focus{border-color:#3b82f6;background:#fff}
@@ -53,7 +53,7 @@ const IS_PREVIEW = false; // Produksi: terhubung murni ke Firebase, tanpa data d
 
 // PASTE FIREBASE CONFIG ANDA DI SINI
 const firebaseConfig = {
-  apiKey: "AIzaSyCV_Nevd0-UAR7LYJIpmI46JwEzYC0PvEI",
+apiKey: "AIzaSyCV_Nevd0-UAR7LYJIpmI46JwEzYC0PvEI",
   authDomain: "gen-1-7a0db.firebaseapp.com",
   projectId: "gen-1-7a0db",
   storageBucket: "gen-1-7a0db.firebasestorage.app",
