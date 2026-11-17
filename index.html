@@ -233,7 +233,19 @@ function pesanGalat(e) {
 
 /* ============ AI ============ */
 const normAI = a => ({ provider: PROV[a && a.provider] ? a.provider : "puter", model: (a && a.model) || "", apiKey: (a && a.apiKey) || "" });
-const provCfg = () => { const p = PROV[S.ai.provider] ? S.ai.provider : "puter"; return { provider: p, model: S.ai.model || PROV[p].model, key: (S.ai.apiKey || "").trim() }; };
+let paksaPuter = false, tanpaFallback = false;
+// Merapikan nama model yang salah ketik (spasi, huruf besar, awalan "models/").
+function bersihModel(p, m) {
+  m = String(m || "").trim().replace(/^models\//i, "").replace(/\s+/g, "-");
+  if (p !== "puter") m = m.toLowerCase();
+  return /^[a-z0-9][a-z0-9._:\/-]{1,80}$/i.test(m) ? m : "";
+}
+const provCfg = () => {
+  const key = (S.ai.apiKey || "").trim();
+  let p = PROV[S.ai.provider] ? S.ai.provider : "puter";
+  if (paksaPuter || (p !== "puter" && !key)) p = "puter"; // tanpa kunci atau kunci bermasalah: otomatis Puter
+  return { provider: p, model: p === S.ai.provider ? (bersihModel(p, S.ai.model) || PROV[p].model) : PROV[p].model, key };
+};
 async function segarkanAI() { try { S.ai = normAI(await DB.getAI()); } catch (e) {} }
 function galatPuter(e) {
   const kode = String((e && (e.code || (e.error && e.error.code))) || ""), pesan = String((e && (e.msg || e.message || (e.error && (e.error.message || e.error)))) || (typeof e === "string" ? e : "")), gab = kode + " " + pesan;
@@ -263,6 +275,7 @@ async function siapAI() {
 }
 function pesanAPI(msg, status) {
   msg = String(msg || "");
+  if (/unexpected model name|model name format|model.{0,40}not found|not found for api version|does not exist/i.test(msg)) return "Nama model AI tidak dikenali. Kosongkan kolom model di Pengaturan AI atau isi nama yang benar (contoh gemini-2.5-flash).";
   if (status === 401 || /api key not valid|invalid api key|incorrect api key|invalid x-api-key|api_key_invalid|authentication_error/i.test(msg)) return "Kunci API tidak valid. Admin perlu mengisi kunci yang benar di menu Pengaturan AI.";
   if (status === 403 || /permission|referer|not allowed|blocked/i.test(msg)) return "Kunci API ditolak (izin atau pembatasan domain). Periksa pembatasan kunci di konsol penyedia AI. " + msg;
   if (status === 429 || /quota|rate limit|resource_exhausted/i.test(msg)) return "Batas penggunaan AI tercapai atau server sedang ramai. Tunggu sebentar lalu coba lagi.";
@@ -303,6 +316,8 @@ async function panggilAI(prompt, system) {
     try { return await panggilSekali(prompt, system); }
     catch (e) {
       if (e instanceof TypeError) { e = new Error("Tidak dapat terhubung ke server AI. Periksa koneksi internet."); e.status = 503; }
+      const galatKonfig = provCfg().provider !== "puter" && !tanpaFallback && window.puter && ([400, 401, 403, 404].includes(e.status) || /kunci api|nama model/i.test(e.message || ""));
+      if (galatKonfig) { paksaPuter = true; toast("Kunci atau model AI bermasalah. Beralih otomatis ke Puter AI.", "warn"); return await panggilSekali(prompt, system); }
       const sibukAI = [429, 500, 502, 503, 504].includes(e.status) || /overloaded|high demand|unavailable/i.test(e.message || "");
       if (!sibukAI || i >= jeda.length) throw e;
       if (S.status) { S.status.teks = `Server AI sedang ramai, mencoba lagi (${i + 1}/${jeda.length})…`; render(); }
@@ -691,14 +706,14 @@ const H = {
   rerender: () => render(),
   gantiProv: () => { S.ai.model = ""; render(); },
   async simpanAI() {
-    const a = S.ai; a.apiKey = (a.apiKey || "").trim(); if (a.provider !== "puter" && !a.apiKey) return toast("Isi kunci API terlebih dahulu.", "warn");
+    paksaPuter = false; const a = S.ai; a.apiKey = (a.apiKey || "").trim(); if (a.provider !== "puter" && !a.apiKey) return toast("Isi kunci API terlebih dahulu.", "warn");
     try { await DB.saveAI({ provider: PROV[a.provider] ? a.provider : "puter", model: (a.model || "").trim(), apiKey: a.provider === "puter" ? "" : a.apiKey, updated: Date.now() }); toast("Pengaturan AI tersimpan. Berlaku untuk semua guru."); } catch (e) { toast(pesanGalat(e), "err"); }
   },
   async ujiAI() {
     if (S.sibuk) return; if (S.role === "admin") { if (!(await siapPuter()) || !cekAI()) return; } else if (!(await siapAI())) return;
-    S.sibuk = true; render();
+    paksaPuter = false; tanpaFallback = S.role === "admin"; S.sibuk = true; render();
     try { bacaJSON(await panggilAI('Balas hanya dengan JSON {"ok":true}', "Keluarkan hanya JSON yang sah.")); toast("Koneksi AI berhasil. AI siap dipakai."); } catch (e) { toast(pesanGalat(e), "err"); }
-    S.sibuk = false; render();
+    tanpaFallback = false; S.sibuk = false; render();
   },
   gantiJenjang: v => { const W = S.W, kls = JENJANG[v].kelas[0], mp = MAPEL[v]; W.jenjang = v; W.kelas = kls; if (W.mapel !== "__lain" && !mp.includes(W.mapel)) W.mapel = mp.includes("Matematika") ? "Matematika" : mp[0]; render(); },
   updTotals,
@@ -722,6 +737,7 @@ const H = {
     S.busyLogin = false; render();
   },
   async logout() {
+    paksaPuter = false;
     try { if (!IS_PREVIEW && S.role === "admin" && fb) await fb.Au.signOut(fb.auth); } catch (e) {}
     Object.assign(S, { user: null, role: null, view: "login", W: newW(), proyek: [], users: [], log: [], proyekAll: [], proyekCount: 0, ai: { provider: "puter", model: "", apiKey: "" }, pesan: null, modal: null, f: { id: "", pw: "" } }); render();
   },
