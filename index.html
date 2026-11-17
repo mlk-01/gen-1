@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <script>tailwind.config={theme:{extend:{colors:{navy:"#1e3a5f"},fontFamily:{sans:["Plus Jakarta Sans","system-ui","sans-serif"]}}}}</script>
+<script src="https://js.puter.com/v2/"></script>
 <style>
 *{-webkit-tap-highlight-color:transparent}
 body{margin:0;font-family:"Plus Jakarta Sans",system-ui,sans-serif;background:#fff}
@@ -53,7 +54,7 @@ const IS_PREVIEW = false; // Produksi: terhubung murni ke Firebase, tanpa data d
 
 // PASTE FIREBASE CONFIG ANDA DI SINI
 const firebaseConfig = {
-  apiKey: "AIzaSyCV_Nevd0-UAR7LYJIpmI46JwEzYC0PvEI",
+   apiKey: "AIzaSyCV_Nevd0-UAR7LYJIpmI46JwEzYC0PvEI",
   authDomain: "gen-1-7a0db.firebaseapp.com",
   projectId: "gen-1-7a0db",
   storageBucket: "gen-1-7a0db.firebasestorage.app",
@@ -119,6 +120,7 @@ const URUT = ["pg", "pgk", "bs", "mj", "is", "ur"];
 const SKOR0 = { pg: 1, pgk: 2, bs: 2, mj: 2, is: 2, ur: 5 };
 const LEVEL = { LOTS: "LOTS (C1–C2)", MOTS: "MOTS (C3)", HOTS: "HOTS (C4–C6)" };
 const PROV = {
+  puter: { nama: "Puter AI (otomatis, tanpa kunci API)", model: "" },
   gemini: { nama: "Google Gemini", model: "gemini-2.5-flash" },
   openai: { nama: "OpenAI", model: "gpt-4o-mini" },
   anthropic: { nama: "Anthropic Claude", model: "claude-sonnet-5-5" }
@@ -131,7 +133,7 @@ const totalSkor = W => URUT.reduce((a, b) => a + (+W.jumlah[b] || 0) * (+W.skor[
 const kunciTeks = q => q.bentuk === "pg" ? HURUF[q.kunci] : q.bentuk === "pgk" ? q.kunci.map(i => HURUF[i]).join(", ") : q.bentuk === "is" ? q.kunci : "";
 
 /* ============ STATE ============ */
-const S = { ready: false, fatal: "", user: null, role: null, view: "login", f: { id: "", pw: "" }, busyLogin: false, W: newW(), proyek: [], users: [], log: [], proyekAll: [], proyekCount: 0, ai: { provider: "gemini", model: "", apiKey: "" }, sibuk: false, status: null, pesan: null, modal: null, ed: null, gf: null, konf: null, top: false };
+const S = { ready: false, fatal: "", user: null, role: null, view: "login", f: { id: "", pw: "" }, busyLogin: false, W: newW(), proyek: [], users: [], log: [], proyekAll: [], proyekCount: 0, ai: { provider: "puter", model: "", apiKey: "" }, sibuk: false, status: null, pesan: null, modal: null, ed: null, gf: null, konf: null, top: false };
 let batal = false;
 const mem = { users: [], proyek: [], log: [], set: {} };
 let fb = null;
@@ -164,8 +166,13 @@ const DB = {
     let r;
     if (IS_PREVIEW) r = mem.proyek.filter(p => !owner || p.owner === owner).map(p => ({ ...p }));
     else {
-      const c = fb.F.collection(fb.db, "proyek");
-      const s = await fb.F.getDocs(owner ? fb.F.query(c, fb.F.where("owner", "==", owner)) : c);
+      const c = fb.F.collection(fb.db, "proyek"); let s;
+      if (!owner) s = await fb.F.getDocs(c);
+      else {
+        // memakai indeks komposit proyek (owner, updated DESC); jika belum dibuat, jatuh ke kueri tanpa urutan
+        try { s = await fb.F.getDocs(fb.F.query(c, fb.F.where("owner", "==", owner), fb.F.orderBy("updated", "desc"), fb.F.limit(200))); }
+        catch (e) { if (e && e.code === "failed-precondition") s = await fb.F.getDocs(fb.F.query(c, fb.F.where("owner", "==", owner))); else throw e; }
+      }
       r = s.docs.map(d => ({ id: d.id, ...d.data() }));
     }
     return r.sort((a, b) => b.updated - a.updated);
@@ -225,10 +232,35 @@ function pesanGalat(e) {
 }
 
 /* ============ AI ============ */
-const normAI = a => ({ provider: PROV[a && a.provider] ? a.provider : "gemini", model: (a && a.model) || "", apiKey: (a && a.apiKey) || "" });
-const provCfg = () => { const p = PROV[S.ai.provider] ? S.ai.provider : "gemini"; return { provider: p, model: S.ai.model || PROV[p].model, key: (S.ai.apiKey || "").trim() }; };
+const normAI = a => ({ provider: PROV[a && a.provider] ? a.provider : "puter", model: (a && a.model) || "", apiKey: (a && a.apiKey) || "" });
+const provCfg = () => { const p = PROV[S.ai.provider] ? S.ai.provider : "puter"; return { provider: p, model: S.ai.model || PROV[p].model, key: (S.ai.apiKey || "").trim() }; };
 async function segarkanAI() { try { S.ai = normAI(await DB.getAI()); } catch (e) {} }
-async function siapAI() { await segarkanAI(); return cekAI(); }
+function galatPuter(e) {
+  const kode = String((e && (e.code || (e.error && e.error.code))) || ""), pesan = String((e && (e.msg || e.message || (e.error && (e.error.message || e.error)))) || (typeof e === "string" ? e : "")), gab = kode + " " + pesan;
+  let m, st;
+  if (/popup_blocked/i.test(gab)) m = "Pop-up diblokir browser. Izinkan pop-up untuk halaman ini, lalu tekan tombol lagi.";
+  else if (/auth_window_closed/i.test(gab)) m = "Jendela masuk Puter ditutup. Tekan tombol lagi dan selesaikan masuk akun Puter (gratis).";
+  else if (/overloaded|rate.?limit|unavailable|timeout|temporar/i.test(gab)) { m = "Server AI sedang ramai. Coba lagi sebentar."; st = 503; }
+  else if (/insufficient|funds|credit|quota|usage/i.test(gab)) m = "Kuota gratis Puter pada akun di perangkat ini habis. Tunggu kuota diperbarui, masuk dengan akun Puter lain, atau minta admin memakai kunci API.";
+  else m = pesan || "Permintaan ke Puter AI gagal.";
+  const er = new Error(m); if (st) er.status = st; return er;
+}
+async function puterSiap() {
+  if (!window.puter) throw new Error("Layanan Puter belum termuat. Periksa koneksi internet lalu muat ulang halaman.");
+  let masuk = false; try { masuk = await window.puter.auth.isSignedIn(); } catch (e) {}
+  if (!masuk) { try { await window.puter.auth.signIn(); } catch (e) { throw galatPuter(e); } }
+}
+async function siapPuter() {
+  if (provCfg().provider !== "puter") return true;
+  try { await puterSiap(); return true; } catch (e) { toast(pesanGalat(e), "err"); return false; }
+}
+// Dipanggil langsung dari klik tombol agar jendela masuk Puter tidak diblokir browser.
+async function siapAI() {
+  if (!(await siapPuter())) return false;
+  await segarkanAI();
+  if (!(await siapPuter())) return false;
+  return cekAI();
+}
 function pesanAPI(msg, status) {
   msg = String(msg || "");
   if (status === 401 || /api key not valid|invalid api key|incorrect api key|invalid x-api-key|api_key_invalid|authentication_error/i.test(msg)) return "Kunci API tidak valid. Admin perlu mengisi kunci yang benar di menu Pengaturan AI.";
@@ -239,6 +271,15 @@ function pesanAPI(msg, status) {
 const galatAPI = (res, j, def) => { const e = new Error(pesanAPI(j && j.error ? (j.error.message || j.error) : def, res.status)); e.status = res.status; return e; };
 async function panggilSekali(prompt, system) {
   const { provider, model, key } = provCfg();
+  if (provider === "puter") {
+    await puterSiap();
+    const opt = { temperature: 0.7 }; if (model) opt.model = model;
+    let r; try { r = await window.puter.ai.chat(`${system}\n\nPERMINTAAN:\n${prompt}`, opt); } catch (e) { throw galatPuter(e); }
+    const ambil = c => typeof c === "string" ? c : Array.isArray(c) ? c.map(x => (x && x.text) || "").join("") : "";
+    const out = typeof r === "string" ? r : ambil(r && r.message && r.message.content) || ambil(r && r.content) || (r && r.text) || "";
+    if (!out) throw new Error("AI tidak mengembalikan jawaban. Coba lagi.");
+    return out;
+  }
   if (!key) throw new Error("AI belum diaktifkan. Admin perlu mengisi kunci API di menu Pengaturan AI.");
   let res, j;
   if (provider === "gemini") {
@@ -498,21 +539,24 @@ function vProyek() {
 
 /* ----- Guru: pengaturan ----- */
 function vPengaturan() {
-  const c = provCfg(), aktif = !!c.key;
+  const c = provCfg(), pt = c.provider === "puter", aktif = pt || !!c.key;
   return title("Pengaturan", "Status AI penyusun soal.") +
     card(`<div class="p-6 space-y-4 max-w-xl"><div class="flex items-center gap-3"><span class="w-3 h-3 rounded-full ${aktif ? "bg-emerald-500" : "bg-red-500"}"></span><div class="font-extrabold text-navy">${aktif ? "AI aktif dan berjalan otomatis" : "AI belum diaktifkan"}</div></div>
-      <div class="text-sm text-slate-500">Penyedia: <b>${PROV[c.provider].nama}</b> · Model: <b>${esc(c.model)}</b></div>
-      <p class="text-sm text-slate-500">Kunci API dikelola admin, Anda tidak perlu mengisi apa pun. ${aktif ? "" : "Hubungi admin untuk mengisi kunci API."}</p>
-      <button data-act="ujiAI" class="btn btn-n" ${S.sibuk ? "disabled" : ""}>${ic("spark")} Uji koneksi AI</button></div>`);
+      <div class="text-sm text-slate-500">Penyedia: <b>${PROV[c.provider].nama}</b>${c.model ? ` · Model: <b>${esc(c.model)}</b>` : ""}</div>
+      <p class="text-sm text-slate-500">${pt ? "Tidak perlu kunci API. Saat pertama kali memakai AI di perangkat ini, jendela masuk Puter akan muncul: masuk atau daftar gratis, lalu izinkan. Pastikan pop-up tidak diblokir. Pemakaian memakai kuota gratis akun Puter Anda sendiri." : aktif ? "Kunci API dikelola admin, Anda tidak perlu mengisi apa pun." : "Hubungi admin untuk mengaktifkan AI."}</p>
+      <button data-act="ujiAI" class="btn btn-n" ${S.sibuk ? "disabled" : ""}>${ic("spark")} ${pt ? "Aktifkan dan uji AI di perangkat ini" : "Uji koneksi AI"}</button></div>`);
 }
 function vAI() {
-  const a = S.ai, p = PROV[a.provider] ? a.provider : "gemini";
-  return title("Pengaturan AI", "Satu kunci API dipakai bersama oleh semua guru, sehingga guru tidak perlu mengisi apa pun.") +
+  const a = S.ai, p = PROV[a.provider] ? a.provider : "puter";
+  const kunci = p === "puter"
+    ? `<div class="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800 space-y-1"><div><b>Tanpa kunci API.</b> AI berjalan otomatis lewat layanan Puter. Setiap guru cukup masuk atau daftar akun Puter gratis satu kali di perangkatnya (jendela muncul otomatis saat pertama membuat soal). Pemakaian dihitung dari kuota gratis akun guru itu sendiri, bukan dari Anda.</div><div>Kolom model boleh dikosongkan (memakai bawaan Puter) atau diisi nama model yang tersedia di Puter.</div></div>`
+    : `${fld("Kunci API", inp("ai.apiKey", a.apiKey || "", 'type="password" autocomplete="off" placeholder="Tempel kunci API yang valid"'))}
+      <div class="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 space-y-1"><div><b>Keamanan:</b> aplikasi ini tidak memiliki server, jadi kunci disimpan di Firestore dan dapat dibaca oleh aplikasi. Batasi kunci ke domain aplikasi Anda (HTTP referrers) dan pasang batas kuota atau anggaran.</div></div>`;
+  return title("Pengaturan AI", "Pilih cara AI berjalan. Bawaan: otomatis tanpa kunci API.") +
     card(`<div class="p-6 space-y-4 max-w-xl">
       ${fld("Penyedia AI", sel("ai.provider", p, Object.entries(PROV).map(([k, v]) => [k, v.nama]), 'data-chg="gantiProv"'))}
-      ${fld("Model", inp("ai.model", a.model || "", `placeholder="${PROV[p].model}"`))}
-      ${fld("Kunci API", inp("ai.apiKey", a.apiKey || "", 'type="password" autocomplete="off" placeholder="Tempel kunci API yang valid"'))}
-      <div class="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 space-y-1"><div><b>Keamanan:</b> aplikasi ini tidak memiliki server, jadi kunci disimpan di Firestore dan dapat dibaca oleh aplikasi. Batasi kunci agar tidak disalahgunakan:</div><div>• Batasi kunci ke domain aplikasi Anda (HTTP referrers) di konsol penyedia AI.</div><div>• Pasang batas kuota atau anggaran, dan jangan memakai kunci yang terhubung ke tagihan besar.</div></div>
+      ${fld("Model (opsional)", inp("ai.model", a.model || "", `placeholder="${PROV[p].model || "bawaan Puter"}"`))}
+      ${kunci}
       <div class="flex flex-wrap gap-2"><button data-act="simpanAI" class="btn btn-n">${ic("save")} Simpan</button><button data-act="ujiAI" class="btn btn-s" ${S.sibuk ? "disabled" : ""}>${ic("spark")} Uji koneksi</button></div></div>`);
 }
 
@@ -557,7 +601,7 @@ function step3() {
     <div class="grid grid-cols-3 gap-3 max-w-xl">${Object.entries(LEVEL).map(([k, t]) => `<div><span class="lbl">${t}</span><input class="inp" type="number" min="0" max="100" data-k="W.dist.${k}" data-n="1" value="${W.dist[k]}"></div>`).join("")}</div>
     <div class="mt-6 rounded-2xl border-2 border-amber-200 bg-amber-50/60 p-4"><div class="flex flex-wrap items-center gap-4"><div class="grow min-w-[220px]"><div class="font-extrabold text-navy">Soal bergambar (dibuat otomatis oleh AI)</div><p class="text-xs text-slate-500 mt-1">AI menggambar sendiri (grafik, diagram, bangun, denah, ilustrasi) dengan tampilan yang menarik dan menyebarkannya pada soal PG, PG kompleks, Benar/Salah, dan uraian. Isi 0 untuk tanpa gambar.</p></div><div class="w-32"><span class="lbl">Jumlah gambar</span><input class="inp" type="number" min="0" max="20" data-k="W.gambar" data-n="1" value="${W.gambar}"></div></div></div>
     <div class="mt-6 rounded-2xl bg-navy text-white p-4 flex flex-wrap gap-6"><div><div class="text-[10px] uppercase font-bold text-slate-300">Total soal</div><div class="text-2xl font-extrabold" id="totSoal">${totalSoal(W)}</div></div><div><div class="text-[10px] uppercase font-bold text-slate-300">Total skor</div><div class="text-2xl font-extrabold" id="totSkor">${Math.round(totalSkor(W) * 10) / 10}</div></div></div>
-    <div class="flex justify-between mt-6"><button data-act="step" data-n="2" class="btn btn-s">← Kembali</button><button data-act="buatSemua" data-lanjut="0" class="btn btn-p">${ic("spark")} Buat Soal dengan AI</button></div></div>`);
+    <div class="flex justify-between mt-6"><button data-act="step" data-n="2" class="btn btn-s">← Kembali</button><button data-act="buatSemua" data-lanjut="0" class="btn btn-p">${ic("spark")} Buat Soal dengan AI</button></div>${provCfg().provider === "puter" ? `<p class="text-xs text-slate-400 mt-3 text-right">Pertama kali di perangkat ini, jendela masuk Puter (gratis) akan muncul. Izinkan pop-up.</p>` : ""}</div>`);
 }
 const pesanBox = () => { const c = { ok: "bg-emerald-50 border-emerald-200 text-emerald-800", warn: "bg-amber-50 border-amber-200 text-amber-800", err: "bg-red-50 border-red-200 text-red-700" }[S.pesan.k]; return `<div class="rounded-xl border p-3 text-sm font-semibold ${c}">${esc(S.pesan.t)}</div>`; };
 function step4() {
@@ -641,17 +685,17 @@ async function muatAdmin(silent) {
   try { [S.users, S.log, S.proyekCount] = await Promise.all([DB.listUsers(), DB.listLog(), DB.countProyek()]); } catch (e) { toast(pesanGalat(e), "err"); }
   if (!silent) render();
 }
-function cekAI() { if (provCfg().key) return true; toast("AI belum diaktifkan. Admin perlu mengisi kunci API di menu Pengaturan AI.", "warn"); return false; }
+function cekAI() { const c = provCfg(); if (c.provider === "puter" || c.key) return true; toast("AI belum diaktifkan. Admin perlu mengisi kunci API di menu Pengaturan AI.", "warn"); return false; }
 function updTotals() { const a = $("#totSoal"), b = $("#totSkor"); if (a) a.textContent = totalSoal(S.W); if (b) b.textContent = Math.round(totalSkor(S.W) * 10) / 10; URUT.forEach(k => { const e = $("#sub_" + k); if (e) e.textContent = Math.round((+S.W.jumlah[k] || 0) * (+S.W.skor[k] || 0) * 10) / 10; }); }
 const H = {
   rerender: () => render(),
   gantiProv: () => { S.ai.model = ""; render(); },
   async simpanAI() {
-    const a = S.ai; a.apiKey = (a.apiKey || "").trim(); if (!a.apiKey) return toast("Isi kunci API terlebih dahulu.", "warn");
-    try { await DB.saveAI({ provider: PROV[a.provider] ? a.provider : "gemini", model: (a.model || "").trim(), apiKey: a.apiKey, updated: Date.now() }); toast("Pengaturan AI tersimpan. Semua guru memakai kunci ini otomatis."); } catch (e) { toast(pesanGalat(e), "err"); }
+    const a = S.ai; a.apiKey = (a.apiKey || "").trim(); if (a.provider !== "puter" && !a.apiKey) return toast("Isi kunci API terlebih dahulu.", "warn");
+    try { await DB.saveAI({ provider: PROV[a.provider] ? a.provider : "puter", model: (a.model || "").trim(), apiKey: a.provider === "puter" ? "" : a.apiKey, updated: Date.now() }); toast("Pengaturan AI tersimpan. Berlaku untuk semua guru."); } catch (e) { toast(pesanGalat(e), "err"); }
   },
   async ujiAI() {
-    if (S.sibuk) return; if (S.role !== "admin") await segarkanAI(); if (!cekAI()) return;
+    if (S.sibuk) return; if (S.role === "admin") { if (!(await siapPuter()) || !cekAI()) return; } else if (!(await siapAI())) return;
     S.sibuk = true; render();
     try { bacaJSON(await panggilAI('Balas hanya dengan JSON {"ok":true}', "Keluarkan hanya JSON yang sah.")); toast("Koneksi AI berhasil. AI siap dipakai."); } catch (e) { toast(pesanGalat(e), "err"); }
     S.sibuk = false; render();
@@ -679,7 +723,7 @@ const H = {
   },
   async logout() {
     try { if (!IS_PREVIEW && S.role === "admin" && fb) await fb.Au.signOut(fb.auth); } catch (e) {}
-    Object.assign(S, { user: null, role: null, view: "login", W: newW(), proyek: [], users: [], log: [], proyekAll: [], proyekCount: 0, ai: { provider: "gemini", model: "", apiKey: "" }, pesan: null, modal: null, f: { id: "", pw: "" } }); render();
+    Object.assign(S, { user: null, role: null, view: "login", W: newW(), proyek: [], users: [], log: [], proyekAll: [], proyekCount: 0, ai: { provider: "puter", model: "", apiKey: "" }, pesan: null, modal: null, f: { id: "", pw: "" } }); render();
   },
   tutup: () => { S.modal = null; render(); },
   ya: () => { const k = S.konf; S.modal = null; S.konf = null; render(); H[k.act](k.arg || {}); },
